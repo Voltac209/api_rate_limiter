@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package ratelimiter.v1;
+
+//indicates where the generated Go code will be stored
+
+option go_package="api-rate-limiter/gen/ratelimiter/v1;ratelimiterpb";
+
+//info required to make one request limit decision
+message RateLimitRequest{
+    string key=1;
+    uint32 limit=2;
+    uint32 window_seconds=3;
+}
+
+//Stores the outcome of evaluating a rate limit
+message RateLimitResponse {
+    enum Decision {
+        DECISION_UNSPECIFIED=0;
+        ALLOW=1;
+        DENY=2;
+    }
+    Decision decision=1;
+    uint32 remaining=2;
+    uint64 retry_after_ms=3;
+}
+
+//RateLimiter provides decision-based API for determining
+// a request should be allowed or not under the configured rate limit
+service RateLimiter {
+    //Check RPC evaluated whether a request identified by the given
+    // key should be allowed at current time
+    // the call returns an An ALLOW or DENY decision along with 
+    // optional metadata
+    rpc Check(RateLimitRequest) returns (RateLimitResponse);
+}
