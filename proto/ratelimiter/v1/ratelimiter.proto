@@ -4,7 +4,7 @@ package ratelimiter.v1;
 
 //indicates where the generated Go code will be stored
 
-option go_package="api-rate-limiter/gen/ratelimiter/v1;ratelimiterpb";
+option go_package="ratelimiter/v1;ratelimiterpb";
 
 //info required to make one request limit decision
 message RateLimitRequest{
