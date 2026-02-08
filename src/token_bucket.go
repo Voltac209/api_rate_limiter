@@ -1,4 +1,4 @@
-package src
+package ratelimiter
 
 import (
 	"sync"
@@ -26,6 +26,17 @@ func newTokenBucket(capacity, refillRate float64) *TBucket {
 		current_tokens: capacity,
 		refill_rate:    refillRate,
 		lastRefill:     time.Now(),
+	}
+}
+
+type TokenBucketLimiter struct {
+	buckets map[string]*TBucket
+	mu      sync.Mutex
+}
+
+func NewTokenBucketLimiter() *TokenBucketLimiter {
+	return &TokenBucketLimiter{
+		buckets: make(map[string]*TBucket),
 	}
 }
 
@@ -61,6 +72,51 @@ func (tb *TBucket) Allow() bool {
 	return false
 }
 
-func main() {
+func (l *TokenBucketLimiter) Check(
+	key string,
+	limit uint32,
+	windowSeconds uint32,
+) Result {
+	bucket := l.getBucket(key, limit, windowSeconds)
+	bucket.bucket_mutex.Unlock()
 
+	bucket.refill()
+	if bucket.current_tokens >= 1 {
+		bucket.current_tokens -= 1
+
+		return Result{
+			Allowed:      true,
+			Remaining:    uint32(bucket.current_tokens),
+			RetryAfterMs: 0,
+		}
+	}
+	retryAfter := (1 - bucket.current_tokens) / bucket.refill_rate
+
+	return Result{
+		Allowed:      false,
+		Remaining:    0,
+		RetryAfterMs: uint64(retryAfter * 1000),
+	}
+}
+
+func (l *TokenBucketLimiter) getBucket(
+	key string,
+	limit uint32,
+	windowSeconds uint32,
+) *TBucket {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if bucket, ok := l.buckets[key]; ok {
+		return bucket
+	}
+
+	bucket := &TBucket{
+		max_tokens:     float64(limit),
+		current_tokens: float64(limit),
+		refill_rate:    float64(limit) / float64(windowSeconds),
+		lastRefill:     time.Now(),
+	}
+	l.buckets[key] = bucket
+	return bucket
 }
