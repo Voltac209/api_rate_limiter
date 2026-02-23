@@ -9,24 +9,12 @@ import (
 
 //In this scenarion Mutex used to handle multiple server requests at once
 
-var mu sync.Mutex
-
 type TBucket struct {
 	max_tokens     float64    //stores maximum number of tokens
 	current_tokens float64    //stores current number of tokens
 	refill_rate    float64    //rate at which tokens added
 	lastRefill     time.Time  //stores the time at which last refill
 	bucket_mutex   sync.Mutex //Ensures only request modifies our bucket.
-}
-
-// Returns a pointer to Token Bucket Struct
-func newTokenBucket(capacity, refillRate float64) *TBucket {
-	return &TBucket{
-		max_tokens:     capacity,
-		current_tokens: capacity,
-		refill_rate:    refillRate,
-		lastRefill:     time.Now(),
-	}
 }
 
 type TokenBucketLimiter struct {
@@ -58,7 +46,7 @@ func (tb *TBucket) refill() {
 //Inside the allow method bucket_mutex added to preserve thread safety
 //defer here makes sure the mutex lock is always released.
 
-func (tb *TBucket) Allow() bool {
+func (tb *TBucket) Allow() (bool, float64, uint64) {
 	tb.bucket_mutex.Lock()
 	defer tb.bucket_mutex.Unlock()
 
@@ -67,9 +55,10 @@ func (tb *TBucket) Allow() bool {
 	tb.refill()
 	if tb.current_tokens >= 1 {
 		tb.current_tokens--
-		return true
+		return true, tb.current_tokens, 0
 	}
-	return false
+	retryAfter := (1 - tb.current_tokens) / tb.refill_rate
+	return false, 0, uint64(retryAfter * 1000)
 }
 
 func (l *TokenBucketLimiter) Check(
@@ -78,24 +67,11 @@ func (l *TokenBucketLimiter) Check(
 	windowSeconds uint32,
 ) Result {
 	bucket := l.getBucket(key, limit, windowSeconds)
-	bucket.bucket_mutex.Unlock()
-
-	bucket.refill()
-	if bucket.current_tokens >= 1 {
-		bucket.current_tokens -= 1
-
-		return Result{
-			Allowed:      true,
-			Remaining:    uint32(bucket.current_tokens),
-			RetryAfterMs: 0,
-		}
-	}
-	retryAfter := (1 - bucket.current_tokens) / bucket.refill_rate
-
+	allowed, remaining, retry := bucket.Allow()
 	return Result{
-		Allowed:      false,
-		Remaining:    0,
-		RetryAfterMs: uint64(retryAfter * 1000),
+		Allowed:      allowed,
+		Remaining:    uint32(remaining),
+		RetryAfterMs: retry,
 	}
 }
 
