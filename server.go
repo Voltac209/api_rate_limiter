@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"net"
+	"os"
+	"strings"
 
 	ratelimiterpb "github.com/Voltac209/api_rate_limiter/gen/ratelimiter/v1"
 	ratelimiter "github.com/Voltac209/api_rate_limiter/src"
@@ -53,7 +55,24 @@ func main() {
 		log.Fatalf("failed to listen : %v", err)
 	}
 	grpcServer := grpc.NewServer()
-	limiter := ratelimiter.NewTokenBucketLimiter()
+	backend := strings.ToLower(os.Getenv("LIMITER_BACKEND"))
+
+	if (backend=="") {
+		backend="inmemory"
+	}
+
+	var limiter ratelimiter.Limiter
+	switch backend {
+	case "inmemory" :
+		limiter=ratelimiter.NewTokenBucketLimiter()
+		log.Println("Using In memory Token Bucket\n")
+
+	case "redis":
+		log.Println("Using Redis\n")
+	
+	default:
+		log.Println("Invalid env use either inmemory or redis")
+	}
 
 	ratelimiterpb.RegisterRateLimiterServer(
 		grpcServer,
