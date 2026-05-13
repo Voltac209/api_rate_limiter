@@ -1,0 +1,17 @@
+ services:
+    redis:
+      image: redis:7
+      container_name: rl-redis
+      ports:
+        - "6379:6379"
+
+    ratelimiter:
+      build: .
+      container_name: rl-server
+      depends_on:
+        - redis
+      environment:
+        LIMITER_BACKEND: redis
+        REDIS_ADDR: redis:6379
+      ports:
+        - "50051:50051"

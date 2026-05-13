@@ -65,11 +65,15 @@ func main() {
 	switch backend {
 	case "inmemory" :
 		limiter=ratelimiter.NewTokenBucketLimiter()
-		log.Println("Using In memory Token Bucket\n")
+		log.Println("Using In memory Token Bucket")
 
 	case "redis":
-		log.Println("Using Redis\n")
-	
+		redisAddr := os.Getenv("REDIS_ADDR")
+		if redisAddr == "" {
+			log.Fatal("REDIS_ADDR required when LIMITER_BACKEND=redis")
+		}
+		limiter= ratelimiter.NewRedisLimiter(redisAddr)
+		log.Printf("Using Redis Limiter as backend (%s)", redisAddr)
 	default:
 		log.Println("Invalid env use either inmemory or redis")
 	}

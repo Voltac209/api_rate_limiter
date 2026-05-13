@@ -1,0 +1,5 @@
+.git
+.gocache
+.DS_Store
+doc
+test
