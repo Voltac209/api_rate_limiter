@@ -5,7 +5,7 @@ FROM golang:1.25-alpine AS builder
     RUN go mod download
 
     COPY . .
-    RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /bin/ratelimiter ./server.go
+    RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/ratelimiter ./server.go
 
     FROM alpine:3.20
     WORKDIR /app

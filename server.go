@@ -17,7 +17,8 @@ import (
 
 type RateLimiterServer struct {
 	ratelimiterpb.UnimplementedRateLimiterServer
-	limiter ratelimiter.Limiter
+	limiter     ratelimiter.Limiter
+	configStore ratelimiter.ConfigStore
 }
 
 func (s *RateLimiterServer) Check(
@@ -27,6 +28,19 @@ func (s *RateLimiterServer) Check(
 	if req.Key == "" {
 		return nil, status.Error(codes.InvalidArgument, "key cannot be empty")
 	}
+	limit := req.Limit
+	windowSeconds := req.WindowSeconds
+
+	if s.configStore != nil {
+		config, found, err := s.configStore.Get(ctx, req.Key)
+		if err != nil {
+			return nil, status.Error(codes.Internal, "failed to load rate limit configuration")
+		}
+		if found {
+			limit = config.Limit
+			windowSeconds = config.WindowSeconds
+		}
+	}
 	if req.Limit == 0 {
 		return nil, status.Error(codes.InvalidArgument, "limit must be greater than 0")
 	}
@@ -35,8 +49,8 @@ func (s *RateLimiterServer) Check(
 	}
 	result := s.limiter.Check(
 		req.Key,
-		req.Limit,
-		req.WindowSeconds,
+		limit,
+		windowSeconds,
 	)
 	decision := ratelimiterpb.RateLimitResponse_DENY
 	if result.Allowed {
@@ -56,15 +70,27 @@ func main() {
 	}
 	grpcServer := grpc.NewServer()
 	backend := strings.ToLower(os.Getenv("LIMITER_BACKEND"))
+	databaseURL := os.Getenv("DATABASE_URL")
+	var configStore ratelimiter.ConfigStore
+	if databaseURL != "" {
+		store, err := ratelimiter.NewPostgresConfigStore(context.Background(), databaseURL)
+		if err != nil {
+			log.Fatalf("failed to connect to PostgreSQL: %v", err)
+		}
+		defer store.Close()
 
-	if (backend=="") {
-		backend="inmemory"
+		configStore = store
+		log.Println("Using stored configuration")
+	}
+
+	if backend == "" {
+		backend = "inmemory"
 	}
 
 	var limiter ratelimiter.Limiter
 	switch backend {
-	case "inmemory" :
-		limiter=ratelimiter.NewTokenBucketLimiter()
+	case "inmemory":
+		limiter = ratelimiter.NewTokenBucketLimiter()
 		log.Println("Using In memory Token Bucket")
 
 	case "redis":
@@ -72,7 +98,7 @@ func main() {
 		if redisAddr == "" {
 			log.Fatal("REDIS_ADDR required when LIMITER_BACKEND=redis")
 		}
-		limiter= ratelimiter.NewRedisLimiter(redisAddr)
+		limiter = ratelimiter.NewRedisLimiter(redisAddr)
 		log.Printf("Using Redis Limiter as backend (%s)", redisAddr)
 	default:
 		log.Println("Invalid env use either inmemory or redis")
@@ -81,7 +107,8 @@ func main() {
 	ratelimiterpb.RegisterRateLimiterServer(
 		grpcServer,
 		&RateLimiterServer{
-			limiter: limiter,
+			limiter:     limiter,
+			configStore: configStore,
 		},
 	)
 

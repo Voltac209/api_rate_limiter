@@ -1,4 +1,4 @@
- services:
+  services:
     redis:
       image: redis:7
       container_name: rl-redis
@@ -9,9 +9,33 @@
       build: .
       container_name: rl-server
       depends_on:
-        - redis
+        redis:
+          condition: service_started
+        postgres:
+          condition: service_healthy
       environment:
         LIMITER_BACKEND: redis
         REDIS_ADDR: redis:6379
+        DATABASE_URL: postgres://ratelimiter:ratelimiter@postgres:5432/ratelimiter?sslmode=disable
       ports:
         - "50051:50051"
+
+    postgres:
+      image: postgres:16
+      container_name: rl-postgres
+      environment:
+        POSTGRES_USER: ratelimiter
+        POSTGRES_PASSWORD: ratelimiter
+        POSTGRES_DB: ratelimiter
+      healthcheck:
+        test: ["CMD-SHELL","pg_isready -U ratelimiter -d ratelimiter"]
+        interval: 2s
+        timeout: 5s
+        retries: 10
+      volumes:
+        - postgres-data:/var/lib/postgresql/data
+        - ./migrations/create_rate_limit_configs.sql:/docker-entrypoint-initdb.d/create_rate_limit_configs.sql:ro
+
+
+  volumes:
+    postgres-data:
