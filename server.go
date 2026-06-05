@@ -41,10 +41,10 @@ func (s *RateLimiterServer) Check(
 			windowSeconds = config.WindowSeconds
 		}
 	}
-	if req.Limit == 0 {
+	if limit == 0 {
 		return nil, status.Error(codes.InvalidArgument, "limit must be greater than 0")
 	}
-	if req.WindowSeconds == 0 {
+	if windowSeconds == 0 {
 		return nil, status.Error(codes.InvalidArgument, "windowSeconds must be greater than 0")
 	}
 	result := s.limiter.Check(
@@ -70,6 +70,7 @@ func main() {
 	}
 	grpcServer := grpc.NewServer()
 	backend := strings.ToLower(os.Getenv("LIMITER_BACKEND"))
+	algorithm := strings.ToLower(os.Getenv("LIMITER_ALGORITHM"))
 	databaseURL := os.Getenv("DATABASE_URL")
 	var configStore ratelimiter.ConfigStore
 	if databaseURL != "" {
@@ -86,22 +87,36 @@ func main() {
 	if backend == "" {
 		backend = "inmemory"
 	}
+	if algorithm == "" {
+		algorithm = "token_bucket"
+	}
 
 	var limiter ratelimiter.Limiter
 	switch backend {
 	case "inmemory":
-		limiter = ratelimiter.NewTokenBucketLimiter()
-		log.Println("Using In memory Token Bucket")
+		switch algorithm {
+		case "token_bucket":
+			limiter = ratelimiter.NewTokenBucketLimiter()
+			log.Println("Using in-memory token bucket limiter")
+		case "rolling_window":
+			limiter = ratelimiter.NewRollingWindowLimiter()
+			log.Println("Using in-memory rolling window limiter")
+		default:
+			log.Fatalf("invalid LIMITER_ALGORITHM=%q; use token_bucket or rolling_window", algorithm)
+		}
 
 	case "redis":
 		redisAddr := os.Getenv("REDIS_ADDR")
 		if redisAddr == "" {
 			log.Fatal("REDIS_ADDR required when LIMITER_BACKEND=redis")
 		}
-		limiter = ratelimiter.NewRedisLimiter(redisAddr)
-		log.Printf("Using Redis Limiter as backend (%s)", redisAddr)
+		if algorithm != "token_bucket" && algorithm != "rolling_window" {
+			log.Fatalf("invalid LIMITER_ALGORITHM=%q; use token_bucket or rolling_window", algorithm)
+		}
+		limiter = ratelimiter.NewRedisLimiter(redisAddr, algorithm)
+		log.Printf("Using Redis %s limiter backend (%s)", algorithm, redisAddr)
 	default:
-		log.Println("Invalid env use either inmemory or redis")
+		log.Fatalf("invalid LIMITER_BACKEND=%q; use inmemory or redis", backend)
 	}
 
 	ratelimiterpb.RegisterRateLimiterServer(
